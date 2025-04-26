@@ -1,48 +1,200 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const app = express();
-const port = 3000;
+const PORT = process.env.PORT || 3000;
 
-let cart = [];
+// To store cart data session-wise (simple in-memory)
+const sessions = {};
 
 app.use(bodyParser.json());
 
-app.post('/webhook', (req, res) => {
-  const intent = req.body.queryResult.intent.displayName;
-  const parameters = req.body.queryResult.parameters;
+// Handle webhook POST
+app.post('/', (req, res) => {
+    const body = req.body;
 
-  let responseText = '';
+    const session = body.session;
+    const queryText = body.queryResult.queryText;
+    const intentName = body.queryResult.intent.displayName;
 
-  if (intent === 'Add-To-Cart') {
-    const item = parameters.item;
-    const price = item === 'Paneer Butter Masala' ? 150 :
-                  item === 'Veg Biriyani' ? 120 :
-                  item === 'Chicken Biriyani' ? 160 :
-                  item === 'Mutton Biriyani' ? 220 : 0;
-
-    cart.push({ item, price });
-    responseText = `${item} added to your cart! Want to add more or proceed to checkout?`;
-  }
-
-  else if (intent === 'Checkout') {
-    if (cart.length === 0) {
-      responseText = 'Your cart is empty!';
-    } else {
-      let total = 0;
-      let summary = cart.map(c => {
-        total += c.price;
-        return `• ${c.item} - ₹${c.price}`;
-      }).join('\n');
-      responseText = `🛒 Your Order Summary:\n${summary}\nTotal: ₹${total}`;
-      cart = [];
+    if (!sessions[session]) {
+        sessions[session] = {
+            cart: [],
+            totalPrice: 0
+        };
     }
-  }
 
-  res.json({
-    fulfillmentText: responseText
-  });
+    if (intentName === 'Veg Menu') {
+        const selectedDish = queryText;
+        const menu = {
+            "Paneer Butter Masala": 180,
+            "Veg Biryani": 150,
+            "Dal Makhani": 120
+        };
+
+        if (menu[selectedDish]) {
+            sessions[session].cart.push({ name: selectedDish, price: menu[selectedDish] });
+            sessions[session].totalPrice += menu[selectedDish];
+
+            return res.json({
+                fulfillmentMessages: [
+                    {
+                        text: {
+                            text: [
+                                `${selectedDish} has been added to your cart!`
+                            ]
+                        }
+                    },
+                    {
+                        payload: {
+                            richContent: [
+                                [
+                                    {
+                                        type: "chips",
+                                        options: [
+                                            { text: "Add another item" },
+                                            { text: "Proceed to checkout" }
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            });
+        }
+    }
+
+    else if (intentName === 'Non Veg Menu') {
+        const selectedDish = queryText;
+        const menu = {
+            "Chicken Biriyani": 160,
+            "Mutton Biriyani": 220,
+            "Fish Fry": 500
+        };
+
+        if (menu[selectedDish]) {
+            sessions[session].cart.push({ name: selectedDish, price: menu[selectedDish] });
+            sessions[session].totalPrice += menu[selectedDish];
+
+            return res.json({
+                fulfillmentMessages: [
+                    {
+                        text: {
+                            text: [
+                                `${selectedDish} has been added to your cart!`
+                            ]
+                        }
+                    },
+                    {
+                        payload: {
+                            richContent: [
+                                [
+                                    {
+                                        type: "chips",
+                                        options: [
+                                            { text: "Add another item" },
+                                            { text: "Proceed to checkout" }
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            });
+        }
+    }
+
+    else if (intentName === 'Add another item') {
+        return res.json({
+            fulfillmentMessages: [
+                {
+                    text: {
+                        text: [
+                            "Great! Please select from Veg or Non-Veg menu again."
+                        ]
+                    }
+                },
+                {
+                    payload: {
+                        richContent: [
+                            [
+                                {
+                                    type: "chips",
+                                    options: [
+                                        { text: "Veg" },
+                                        { text: "Non-Veg" }
+                                    ]
+                                }
+                            ]
+                        ]
+                    }
+                }
+            ]
+        });
+    }
+
+    else if (intentName === 'Proceed to checkout') {
+        const cart = sessions[session].cart;
+        const total = sessions[session].totalPrice;
+
+        if (cart.length === 0) {
+            return res.json({
+                fulfillmentMessages: [
+                    {
+                        text: {
+                            text: ["Your cart is empty!"]
+                        }
+                    }
+                ]
+            });
+        }
+
+        let summary = "Here's your order summary:\n";
+        cart.forEach((item, index) => {
+            summary += `${index + 1}. ${item.name} - ₹${item.price}\n`;
+        });
+        summary += `\nTotal Amount: ₹${total}`;
+
+        // Clear cart after checkout (optional)
+        delete sessions[session];
+
+        return res.json({
+            fulfillmentMessages: [
+                {
+                    text: {
+                        text: [summary]
+                    }
+                },
+                {
+                    text: {
+                        text: ["Thank you for ordering! 🍽️"]
+                    }
+                }
+            ]
+        });
+    }
+
+    else {
+        // Default fallback
+        return res.json({
+            fulfillmentMessages: [
+                {
+                    text: {
+                        text: [
+                            "Sorry, I didn't understand that."
+                        ]
+                    }
+                }
+            ]
+        });
+    }
 });
 
-app.listen(port, () => {
-  console.log(`Webhook server running on http://localhost:${port}`);
+app.get('/', (req, res) => {
+    res.send('Food Bot Webhook is running!');
+});
+
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
